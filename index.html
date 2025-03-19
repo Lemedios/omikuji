@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>おみくじ</title>
+  <style>
+    /* ページ全体のスタイル */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background-color: #f0f0f0;
+    }
+
+    /* コンテナ：中央に配置＆白背景にシャドウを付けてモダンに */
+    .container {
+      width: 90%;
+      max-width: 600px;
+      margin: 80px auto;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+      text-align: center;
+      padding: 40px;
+    }
+
+    /* タイトル */
+    h1 {
+      margin-bottom: 20px;
+      color: #333;
+      font-size: 1.8rem;
+    }
+
+    /* 通常テキスト */
+    p {
+      margin-bottom: 20px;
+      color: #666;
+      line-height: 1.6;
+    }
+
+    /* 結果表示（大きめに） */
+    h2 {
+      font-size: 2rem;
+      color: #e91e63;
+      margin-bottom: 20px;
+    }
+
+    /* ボタンのスタイル */
+    button {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background-color: #2196f3;
+      color: #fff;
+      transition: background-color 0.2s ease;
+      margin: 0 5px;
+    }
+    button:hover {
+      background-color: #1976d2;
+    }
+
+    /* コピー用のテキストボックス */
+    .copy-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .copy-input {
+      width: 90%;
+      max-width: 400px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>おみくじ</h1>
+  <div id="content"></div>
+</div>
+
+<script>
+  // ▼▼▼ Base64エンコード／デコード用の関数 ▼▼▼
+  // 日本語などマルチバイト文字を扱うとき、btoa/atobだけでは不完全なため
+  // unescape/escape, encodeURIComponent/decodoeURIComponentを組み合わせた処理を行います
+
+  function encodeBase64(str) {
+    // 文字列をURIエンコード → 16進数エスケープ → btoa
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+
+  function decodeBase64(str) {
+    // atobした結果を再度escape→decodeURIComponentでUTF-8文字列に戻す
+    return decodeURIComponent(escape(atob(str)));
+  }
+
+  // ▼▼▼ おみくじのバリエーション ▼▼▼
+  const omikujiResults = [
+    "大大吉", "大吉", "中吉", "吉",
+    "末吉", "凶", "大凶", "大大凶"
+  ];
+
+  // ▼▼▼ コンテンツ表示領域 ▼▼▼
+  const contentDiv = document.getElementById("content");
+
+  // ▼▼▼ URLパラメータを取得して、結果を表示するか分岐 ▼▼▼
+  const params = new URLSearchParams(window.location.search);
+  const encodedParam = params.get("r"); // "r"パラメータ（Base64にした結果文字列）
+
+  if (encodedParam) {
+    // すでに "r=Base64文字列" が付いている → 結果表示モード
+    const decodedResult = decodeBase64(encodedParam);
+
+    // メッセージ
+    const messageP = document.createElement("p");
+    messageP.textContent = "あなたのおみくじの結果は…";
+    contentDiv.appendChild(messageP);
+
+    // 結果表示
+    const resultH2 = document.createElement("h2");
+    resultH2.textContent = decodedResult;
+    contentDiv.appendChild(resultH2);
+
+    // もう一度引くボタン
+    const retryBtn = document.createElement("button");
+    retryBtn.textContent = "もう一度引く";
+    retryBtn.onclick = function() {
+      // パラメータなしURLで再読込して元の状態へ
+      window.location.href = window.location.pathname;
+    };
+    contentDiv.appendChild(retryBtn);
+
+  } else {
+    // おみくじ未実行の場合 → 「おみくじを引く」ボタンと説明を表示
+    const guideP = document.createElement("p");
+    guideP.textContent = "「おみくじを引く」ボタンでURLを生成し、コピーして結果を確認できます。";
+    contentDiv.appendChild(guideP);
+
+    const drawButton = document.createElement("button");
+    drawButton.textContent = "おみくじを引く";
+    drawButton.onclick = drawOmikuji;
+    contentDiv.appendChild(drawButton);
+  }
+
+  // ▼▼▼ おみくじを引いた時の処理 ▼▼▼
+  function drawOmikuji() {
+    // ランダムに結果を選択
+    const randomIndex = Math.floor(Math.random() * omikujiResults.length);
+    const selected = omikujiResults[randomIndex];
+
+    // 結果をBase64エンコードして、?r=... を付与したURLを生成
+    const encoded = encodeBase64(selected);
+    const resultUrl = window.location.origin + window.location.pathname + "?r=" + encoded;
+
+    // 表示を更新（URLを表示＆コピーできるように）
+    contentDiv.innerHTML = ""; // 一旦クリア
+
+    const successP = document.createElement("p");
+    successP.textContent = "結果URLを生成しました！以下をコピーしてアクセスしてください。";
+    contentDiv.appendChild(successP);
+
+    // コピー用の要素をまとめる
+    const copySection = document.createElement("div");
+    copySection.className = "copy-section";
+
+    // URLを表示するテキストボックス
+    const copyInput = document.createElement("input");
+    copyInput.type = "text";
+    copyInput.readOnly = true;
+    copyInput.className = "copy-input";
+    copyInput.value = resultUrl;
+
+    copySection.appendChild(copyInput);
+
+    // コピー用ボタン
+    const copyButton = document.createElement("button");
+    copyButton.textContent = "コピー";
+    copyButton.onclick = function() {
+      // テキストボックスの内容を選択してコピー
+      copyInput.select();
+      document.execCommand("copy");
+      alert("コピーしました!");
+    };
+    copySection.appendChild(copyButton);
+
+    // または、別タブで直接開くボタン
+    const openButton = document.createElement("button");
+    openButton.textContent = "別タブで開く";
+    openButton.onclick = function() {
+      window.open(resultUrl, "_blank");
+    };
+    copySection.appendChild(openButton);
+
+    contentDiv.appendChild(copySection);
+  }
+</script>
+
+</body>
+</html>
