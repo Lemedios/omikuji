@@ -11,7 +11,6 @@
       font-family: sans-serif;
       background-color: #f0f0f0;
     }
-
     /* コンテナ：中央に配置＆白背景にシャドウを付けてモダンに */
     .container {
       width: 90%;
@@ -23,28 +22,24 @@
       text-align: center;
       padding: 40px;
     }
-
     /* タイトル */
     h1 {
       margin-bottom: 20px;
       color: #333;
       font-size: 1.8rem;
     }
-
     /* 通常テキスト */
     p {
       margin-bottom: 20px;
       color: #666;
       line-height: 1.6;
     }
-
     /* 結果表示（大きめに） */
     h2 {
       font-size: 2rem;
       color: #e91e63;
       margin-bottom: 20px;
     }
-
     /* ボタンのスタイル */
     button {
       padding: 12px 24px;
@@ -60,22 +55,24 @@
     button:hover {
       background-color: #1976d2;
     }
-
-    /* コピー用のテキストボックス */
-    .copy-section {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      margin-top: 20px;
-    }
-    .copy-input {
-      width: 90%;
-      max-width: 400px;
+    /* URL表示用 */
+    .url-box {
+      width: 100%;
+      max-width: 100%;
       padding: 8px;
       border: 1px solid #ccc;
       border-radius: 4px;
+      margin: 10px 0 20px 0;
       font-size: 0.9rem;
+      color: #333;
+      word-break: break-all;
+      background: #fafafa;
+    }
+    /* コピー完了メッセージ */
+    .copy-msg {
+      color: #4caf50;
+      font-size: 0.9rem;
+      margin-top: 5px;
     }
   </style>
 </head>
@@ -83,123 +80,207 @@
 
 <div class="container">
   <h1>おみくじ</h1>
-  <div id="content"></div>
+  <div id="content">
+    <p>読み込み中...</p>
+  </div>
 </div>
 
 <script>
-  // ▼▼▼ Base64エンコード／デコード用の関数 ▼▼▼
-  // 日本語などマルチバイト文字を扱うとき、btoa/atobだけでは不完全なため
-  // unescape/escape, encodeURIComponent/decodoeURIComponentを組み合わせた処理を行います
+/* ------------------------------------------------------
+   1) IPアドレスの取得 (ipify APIを使用)
+   2) localStorageに (IP, 日付) を保存して1日1回制限
+   3) おみくじ結果を「隠し文字列」としてURLパラメータに付与
+   4) URLコピー＆結果表示
+------------------------------------------------------ */
 
-  function encodeBase64(str) {
-    // 文字列をURIエンコード → 16進数エスケープ → btoa
-    return btoa(unescape(encodeURIComponent(str)));
-  }
+/* -- “隠し文字列”用：Base64エンコード／デコード (UTF-8対応) -- */
+function encodeString(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function decodeString(str) {
+  return decodeURIComponent(escape(atob(str)));
+}
 
-  function decodeBase64(str) {
-    // atobした結果を再度escape→decodeURIComponentでUTF-8文字列に戻す
-    return decodeURIComponent(escape(atob(str)));
-  }
+/* -- 今日の日付(YYYY-MM-DD)を取得する関数 -- */
+function getTodayString() {
+  const now = new Date();
+  return now.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
 
-  // ▼▼▼ おみくじのバリエーション ▼▼▼
-  const omikujiResults = [
-    "大大吉", "大吉", "中吉", "吉",
-    "末吉", "凶", "大凶", "大大凶"
-  ];
+/* -- HTML要素参照 -- */
+const contentDiv = document.getElementById("content");
 
-  // ▼▼▼ コンテンツ表示領域 ▼▼▼
-  const contentDiv = document.getElementById("content");
+/* -- おみくじ候補 -- */
+const omikujiResults = [
+  "大大吉", "大吉", "中吉", "吉", "末吉", "凶", "大凶", "大大凶"
+];
 
-  // ▼▼▼ URLパラメータを取得して、結果を表示するか分岐 ▼▼▼
+/* -- グローバル変数: 取得したIPアドレス -- */
+let userIP = null;
+
+/* ------------------------------------------------------
+   ページ読み込み時の処理:
+   1) URLパラメータに result があれば結果画面表示
+   2) なければIPを取得して制限チェック → 通常画面
+------------------------------------------------------ */
+function init() {
   const params = new URLSearchParams(window.location.search);
-  const encodedParam = params.get("r"); // "r"パラメータ（Base64にした結果文字列）
+  const encodedResult = params.get("result");
 
-  if (encodedParam) {
-    // すでに "r=Base64文字列" が付いている → 結果表示モード
-    const decodedResult = decodeBase64(encodedParam);
-
-    // メッセージ
-    const messageP = document.createElement("p");
-    messageP.textContent = "あなたのおみくじの結果は…";
-    contentDiv.appendChild(messageP);
-
-    // 結果表示
-    const resultH2 = document.createElement("h2");
-    resultH2.textContent = decodedResult;
-    contentDiv.appendChild(resultH2);
-
-    // もう一度引くボタン
-    const retryBtn = document.createElement("button");
-    retryBtn.textContent = "もう一度引く";
-    retryBtn.onclick = function() {
-      // パラメータなしURLで再読込して元の状態へ
-      window.location.href = window.location.pathname;
-    };
-    contentDiv.appendChild(retryBtn);
-
+  // 結果画面かどうか
+  if (encodedResult) {
+    showResult(decodeString(encodedResult)); // デコードして表示
   } else {
-    // おみくじ未実行の場合 → 「おみくじを引く」ボタンと説明を表示
-    const guideP = document.createElement("p");
-    guideP.textContent = "「おみくじを引く」ボタンでURLを生成し、コピーして結果を確認できます。";
-    contentDiv.appendChild(guideP);
+    // IPを取得してから制限チェック
+    fetch("https://api.ipify.org?format=json")
+      .then(res => res.json())
+      .then(data => {
+        userIP = data.ip;
+        checkLockAndShowInitial();
+      })
+      .catch(err => {
+        // IP取得失敗時は制限できないが、何もしないよりは通常表示
+        console.log("IP取得失敗:", err);
+        userIP = null;
+        checkLockAndShowInitial();
+      });
+  }
+}
 
-    const drawButton = document.createElement("button");
-    drawButton.textContent = "おみくじを引く";
-    drawButton.onclick = drawOmikuji;
-    contentDiv.appendChild(drawButton);
+/* ------------------------------------------------------
+   おみくじを引けるか(ロックされているか)をチェックし、
+   画面を出し分ける
+------------------------------------------------------ */
+function checkLockAndShowInitial() {
+  contentDiv.innerHTML = ""; // いったんクリア
+
+  // localStorageに保存してあるロック情報を取得
+  const lockData = localStorage.getItem("omikujiLock");
+  const today = getTodayString();
+
+  // ロック情報があればパース
+  if (lockData) {
+    try {
+      const lockObj = JSON.parse(lockData);
+      if (lockObj.ip === userIP && lockObj.date === today) {
+        // 同じIPかつ本日の日付が一致 → 引けない
+        const msg = document.createElement("p");
+        msg.textContent = "今日はもう引けません。明日またお越しください。";
+        contentDiv.appendChild(msg);
+        return;
+      }
+    } catch (e) {
+      // JSONパース失敗時は無視して通常画面
+    }
   }
 
-  // ▼▼▼ おみくじを引いた時の処理 ▼▼▼
-  function drawOmikuji() {
-    // ランダムに結果を選択
-    const randomIndex = Math.floor(Math.random() * omikujiResults.length);
-    const selected = omikujiResults[randomIndex];
+  // 引ける場合 → ボタンなどを表示
+  const guide = document.createElement("p");
+  guide.textContent = "ボタンを押すとURLが生成されます。";
+  contentDiv.appendChild(guide);
 
-    // 結果をBase64エンコードして、?r=... を付与したURLを生成
-    const encoded = encodeBase64(selected);
-    const resultUrl = window.location.origin + window.location.pathname + "?r=" + encoded;
+  const btn = document.createElement("button");
+  btn.textContent = "おみくじを引く";
+  btn.onclick = drawOmikuji;
+  contentDiv.appendChild(btn);
+}
 
-    // 表示を更新（URLを表示＆コピーできるように）
-    contentDiv.innerHTML = ""; // 一旦クリア
+/* ------------------------------------------------------
+   おみくじを引く動作
+   → 結果をエンコードしてURL生成
+   → そのURLを表示 + コピー機能
+   → localStorageにロック情報を保存
+------------------------------------------------------ */
+function drawOmikuji() {
+  // ランダムに結果を選択
+  const selected = omikujiResults[Math.floor(Math.random() * omikujiResults.length)];
+  // エンコードしてURL生成
+  const encoded = encodeString(selected);
+  const resultUrl = window.location.origin + window.location.pathname + "?result=" + encoded;
 
-    const successP = document.createElement("p");
-    successP.textContent = "結果URLを生成しました！以下をコピーしてアクセスしてください。";
-    contentDiv.appendChild(successP);
-
-    // コピー用の要素をまとめる
-    const copySection = document.createElement("div");
-    copySection.className = "copy-section";
-
-    // URLを表示するテキストボックス
-    const copyInput = document.createElement("input");
-    copyInput.type = "text";
-    copyInput.readOnly = true;
-    copyInput.className = "copy-input";
-    copyInput.value = resultUrl;
-
-    copySection.appendChild(copyInput);
-
-    // コピー用ボタン
-    const copyButton = document.createElement("button");
-    copyButton.textContent = "コピー";
-    copyButton.onclick = function() {
-      // テキストボックスの内容を選択してコピー
-      copyInput.select();
-      document.execCommand("copy");
-      alert("コピーしました!");
+  // localStorageに (ip, date) を記録
+  // → 同じIP & 今日の日付 でロック
+  if (userIP) {
+    const lockObj = {
+      ip: userIP,
+      date: getTodayString()
     };
-    copySection.appendChild(copyButton);
-
-    // または、別タブで直接開くボタン
-    const openButton = document.createElement("button");
-    openButton.textContent = "別タブで開く";
-    openButton.onclick = function() {
-      window.open(resultUrl, "_blank");
-    };
-    copySection.appendChild(openButton);
-
-    contentDiv.appendChild(copySection);
+    localStorage.setItem("omikujiLock", JSON.stringify(lockObj));
   }
+
+  // 画面をURL表示画面に切り替え
+  contentDiv.innerHTML = "";
+
+  const msg = document.createElement("p");
+  msg.textContent = "以下のURLで結果が確認できます。";
+  contentDiv.appendChild(msg);
+
+  // URL表示用
+  const urlBox = document.createElement("div");
+  urlBox.className = "url-box";
+  urlBox.textContent = resultUrl;
+  contentDiv.appendChild(urlBox);
+
+  // コピー用ボタン
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "URLをコピー";
+  copyBtn.onclick = function() {
+    copyToClipboard(resultUrl);
+  };
+  contentDiv.appendChild(copyBtn);
+
+  // 結果を開くボタン
+  const openBtn = document.createElement("button");
+  openBtn.textContent = "結果を表示する";
+  openBtn.onclick = function() {
+    window.open(resultUrl, "_blank");
+  };
+  contentDiv.appendChild(openBtn);
+}
+
+/* ------------------------------------------------------
+   結果画面の表示
+------------------------------------------------------ */
+function showResult(decodedResult) {
+  contentDiv.innerHTML = "";
+
+  const msg = document.createElement("p");
+  msg.textContent = "あなたのおみくじの結果は…";
+  contentDiv.appendChild(msg);
+
+  const h2 = document.createElement("h2");
+  h2.textContent = decodedResult;
+  contentDiv.appendChild(h2);
+
+  const retry = document.createElement("button");
+  retry.textContent = "もう一度引く";
+  retry.onclick = function() {
+    window.location.href = window.location.pathname;
+  };
+  contentDiv.appendChild(retry);
+}
+
+/* ------------------------------------------------------
+   クリップボードにコピーする
+------------------------------------------------------ */
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const copyMsg = document.createElement("div");
+    copyMsg.className = "copy-msg";
+    copyMsg.textContent = "コピーしました！";
+    contentDiv.appendChild(copyMsg);
+    setTimeout(() => {
+      if (copyMsg.parentNode) {
+        copyMsg.parentNode.removeChild(copyMsg);
+      }
+    }, 2000);
+  });
+}
+
+/* ------------------------------------------------------
+   ページ読み込み時に初期処理
+------------------------------------------------------ */
+window.addEventListener("DOMContentLoaded", init);
 </script>
 
 </body>
