@@ -87,10 +87,11 @@
 
 <script>
 /* ------------------------------------------------------
-   1) IPアドレスの取得 (ipify APIを使用)
-   2) localStorageに (IP, 日付) を保存して1日1回制限
-   3) おみくじ結果を「隠し文字列」としてURLパラメータに付与
+   1) IPアドレス取得 (ipify APIを使用)
+   2) localStorageに (ip, date, encodedResult) を保存して制限
+   3) おみくじ結果をBase64的に “隠し文字列” としてURLパラメータに付与
    4) URLコピー＆結果表示
+   5) すでに引いていたら、引いた結果を再表示
 ------------------------------------------------------ */
 
 /* -- “隠し文字列”用：Base64エンコード／デコード (UTF-8対応) -- */
@@ -139,7 +140,7 @@ function init() {
         checkLockAndShowInitial();
       })
       .catch(err => {
-        // IP取得失敗時は制限できないが、何もしないよりは通常表示
+        // IP取得失敗時 → とりあえずIPをnullにして制限なし表示
         console.log("IP取得失敗:", err);
         userIP = null;
         checkLockAndShowInitial();
@@ -153,28 +154,35 @@ function init() {
 ------------------------------------------------------ */
 function checkLockAndShowInitial() {
   contentDiv.innerHTML = ""; // いったんクリア
-
-  // localStorageに保存してあるロック情報を取得
   const lockData = localStorage.getItem("omikujiLock");
   const today = getTodayString();
 
-  // ロック情報があればパース
   if (lockData) {
     try {
       const lockObj = JSON.parse(lockData);
+      // 同じIPかつ本日の日付が一致 → 引けない
       if (lockObj.ip === userIP && lockObj.date === today) {
-        // 同じIPかつ本日の日付が一致 → 引けない
+        contentDiv.innerHTML = "";
+
         const msg = document.createElement("p");
-        msg.textContent = "今日はもう引けません。明日またお越しください。";
+        msg.textContent = "今日はもう引けません。";
         contentDiv.appendChild(msg);
+
+        // すでに引いた結果があれば表示
+        if (lockObj.encodedResult) {
+          const decodedResult = decodeString(lockObj.encodedResult);
+          const subMsg = document.createElement("p");
+          subMsg.textContent = `あなたが今日引いたおみくじの結果は「${decodedResult}」でした。`;
+          contentDiv.appendChild(subMsg);
+        }
         return;
       }
     } catch (e) {
-      // JSONパース失敗時は無視して通常画面
+      // JSONパース失敗時は無視
     }
   }
 
-  // 引ける場合 → ボタンなどを表示
+  // ここまで来たらまだ引ける
   const guide = document.createElement("p");
   guide.textContent = "ボタンを押すとURLが生成されます。";
   contentDiv.appendChild(guide);
@@ -189,26 +197,27 @@ function checkLockAndShowInitial() {
    おみくじを引く動作
    → 結果をエンコードしてURL生成
    → そのURLを表示 + コピー機能
-   → localStorageにロック情報を保存
+   → localStorageにロック情報(今日の日付, IP, 結果)を保存
 ------------------------------------------------------ */
 function drawOmikuji() {
   // ランダムに結果を選択
   const selected = omikujiResults[Math.floor(Math.random() * omikujiResults.length)];
+
   // エンコードしてURL生成
   const encoded = encodeString(selected);
   const resultUrl = window.location.origin + window.location.pathname + "?result=" + encoded;
 
-  // localStorageに (ip, date) を記録
-  // → 同じIP & 今日の日付 でロック
+  // localStorageに (ip, date, encodedResult) を記録
   if (userIP) {
     const lockObj = {
       ip: userIP,
-      date: getTodayString()
+      date: getTodayString(),
+      encodedResult: encoded
     };
     localStorage.setItem("omikujiLock", JSON.stringify(lockObj));
   }
 
-  // 画面をURL表示画面に切り替え
+  // 画面をURL表示に切り替え
   contentDiv.innerHTML = "";
 
   const msg = document.createElement("p");
